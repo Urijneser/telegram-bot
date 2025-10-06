@@ -102,26 +102,13 @@ app.get('/webhook-info', async (req, res) => {
   }
 });
 
-// Обработчик сообщений от Telegram
-app.post('/webhook', async (req, res) => {
-  try {
-    const update = req.body;
-    console.log('📨 Received Telegram update:', JSON.stringify(update));
-
-    if (update.message && update.message.text) {
-      const chatId = update.message.chat.id;
-      const text = update.message.text;
-      const userName = update.message.from.first_name || 'Пользователь';
-
-      console.log(`Processing message from ${userName} (${chatId}): ${text}`);
-
-    // Функция отправки сообщения
-async function sendMessage(chatId, text) {
+// Функция отправки сообщения
+async function sendMessage(chatId, userName) {
   try {
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
     const payload = {
       chat_id: chatId,
-      text: "Здравствуйте! ${userName}! 👋\n\nДля записи на встречу перейдите на страницу встречи 11 октября в Алматы:\n\n🔗 [Ссылка на встречу](https://performia-seminar.kz/star_team)\n\nЖдем вас на встрече! 🎉",
+      text: `Здравствуйте, ${userName}! 👋\n\nДля записи на встречу перейдите на страницу встречи 11 октября в Алматы:\n\n🔗 [Ссылка на встречу](https://performia-seminar.kz/star_team)\n\nЖдем вас на встрече! 🎉`,
       parse_mode: 'Markdown',
       disable_web_page_preview: false
     };
@@ -135,6 +122,23 @@ async function sendMessage(chatId, text) {
   }
 }
 
+// Обработчик сообщений от Telegram
+app.post('/webhook', async (req, res) => {
+  try {
+    const update = req.body;
+    console.log('📨 Received Telegram update:', JSON.stringify(update));
+
+    if (update.message && update.message.text) {
+      const chatId = update.message.chat.id;
+      const text = update.message.text;
+      const userName = update.message.from.first_name || 'Пользователь';
+
+      console.log(`Processing message from ${userName} (${chatId}): ${text}`);
+
+      // Отправляем сообщение с ссылкой
+      await sendMessage(chatId, userName);
+    }
+
     res.status(200).send('OK');
   } catch (error) {
     console.error('❌ Webhook processing error:', error);
@@ -142,33 +146,11 @@ async function sendMessage(chatId, text) {
   }
 });
 
-// Функция отправки сообщения
-async function sendMessage(chatId, text) {
-  try {
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-    const payload = {
-      chat_id: chatId,
-      text: text,
-      parse_mode: 'Markdown'
-    };
-    
-    const response = await axios.post(url, payload);
-    console.log('✅ Message sent to chatId:', chatId);
-    return response.data;
-  } catch (error) {
-    console.error('❌ Send message error:', error.response?.data || error.message);
-    throw error;
-  }
-}
-
 // Тестовая функция для отправки сообщения
 app.get('/test-message/:chatId', async (req, res) => {
   try {
     const chatId = req.params.chatId;
-    const result = await sendMessage(chatId, 
-      '🔧 Тестовое сообщение от бота!\n\n' +
-      'Если вы это видите - бот работает корректно! 🎉'
-    );
+    const result = await sendMessage(chatId, 'TestUser');
     
     res.json({
       success: true,
@@ -201,4 +183,3 @@ process.on('SIGINT', () => {
   console.log('🛑 Received SIGINT, shutting down gracefully...');
   process.exit(0);
 });
-
