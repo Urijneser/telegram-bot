@@ -9,41 +9,92 @@ const BOT_TOKEN = "8384153568:AAHjkIpIVGRlpo-NmEJblXl7FDWyBkg9cj0";
 
 app.use(express.json());
 
-// ГЛАВНАЯ СТРАНИЦА - для проверки здоровья
+// ГЛАВНАЯ СТРАНИЦА - для проверки
 app.get('/', (req, res) => {
+  const host = req.get('host');
+  const protocol = req.protocol;
+  const fullUrl = `${protocol}://${host}`;
+  
   res.json({ 
     status: 'OK', 
-    message: 'Telegram Bot is running!',
+    message: '🤖 Telegram Bot is running!',
+    webhookUrl: `${fullUrl}/webhook`,
+    setWebhook: `${fullUrl}/set-webhook`,
+    healthCheck: `${fullUrl}/health`,
     timestamp: new Date().toISOString()
   });
 });
 
-// Проверка здоровья
+// Health check для Railway
 app.get('/health', (req, res) => {
-  res.status(200).send('OK');
+  res.status(200).json({ 
+    status: 'healthy',
+    service: 'telegram-bot',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
 });
 
 // Установка вебхука
 app.get('/set-webhook', async (req, res) => {
   try {
-    // Получаем автоматический URL от Railway
     const host = req.get('host');
     const protocol = req.protocol;
     const webhookUrl = `${protocol}://${host}/webhook`;
     
+    console.log('Setting webhook to:', webhookUrl);
+    
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${webhookUrl}`;
     const response = await axios.get(url);
     
-    console.log('Webhook set to:', webhookUrl);
+    console.log('Telegram response:', response.data);
     
     res.json({
       success: true,
-      message: "Webhook установлен!",
+      message: "✅ Webhook установлен!",
       webhookUrl: webhookUrl,
-      telegramResponse: response.data
+      telegramResponse: response.data,
+      nextStep: "Теперь напишите боту в Telegram любое сообщение!"
     });
   } catch (error) {
     console.error('Webhook error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Удаление вебхука (если нужно сбросить)
+app.get('/delete-webhook', async (req, res) => {
+  try {
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook`;
+    const response = await axios.get(url);
+    
+    res.json({
+      success: true,
+      message: "Webhook удален",
+      response: response.data
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Информация о вебхуке
+app.get('/webhook-info', async (req, res) => {
+  try {
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo`;
+    const response = await axios.get(url);
+    
+    res.json({
+      success: true,
+      webhookInfo: response.data
+    });
+  } catch (error) {
     res.status(500).json({ 
       success: false,
       error: error.message 
@@ -55,24 +106,29 @@ app.get('/set-webhook', async (req, res) => {
 app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
+    console.log('📨 Received Telegram update:', JSON.stringify(update));
 
     if (update.message && update.message.text) {
       const chatId = update.message.chat.id;
       const text = update.message.text;
+      const userName = update.message.from.first_name || 'Пользователь';
 
-      console.log('Received message from:', chatId, 'text:', text);
+      console.log(`Processing message from ${userName} (${chatId}): ${text}`);
 
+      // Ответ на сообщение
       await sendMessage(chatId, 
-        `🎉 Бот работает! Спасибо за сообщение!\n\n` +
-        `Вы написали: "${text}"\n\n` +
-        `Ссылка: https://example.com`
+        `Привет, ${userName}! 👋\n\n` +
+        `Вы написали: *"${text}"*\n\n` +
+        `🎉 Бот успешно работает на Railway!\n\n` +
+        `🔗 Пример ссылки: https://example.com\n\n` +
+        `_Это автоматический ответ_`
       );
     }
 
     res.status(200).send('OK');
   } catch (error) {
-    console.error('Webhook processing error:', error);
-    res.status(200).send('OK');
+    console.error('❌ Webhook processing error:', error);
+    res.status(200).send('OK'); // Всегда возвращаем OK Telegram
   }
 });
 
@@ -82,30 +138,56 @@ async function sendMessage(chatId, text) {
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
     const payload = {
       chat_id: chatId,
-      text: text
+      text: text,
+      parse_mode: 'Markdown'
     };
     
-    await axios.post(url, payload);
-    console.log('Message sent to:', chatId);
+    const response = await axios.post(url, payload);
+    console.log('✅ Message sent to chatId:', chatId);
+    return response.data;
   } catch (error) {
-    console.error('Send message error:', error.response?.data || error.message);
+    console.error('❌ Send message error:', error.response?.data || error.message);
+    throw error;
   }
 }
 
-// Запуск сервера на 0.0.0.0 чтобы принимать внешние подключения
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Bot server running on port ${PORT}`);
-  console.log(`✅ Health check: http://0.0.0.0:${PORT}/health`);
-  console.log(`📝 Set webhook: http://0.0.0.0:${PORT}/set-webhook`);
+// Тестовая функция для отправки сообщения
+app.get('/test-message/:chatId', async (req, res) => {
+  try {
+    const chatId = req.params.chatId;
+    const result = await sendMessage(chatId, 
+      '🔧 Тестовое сообщение от бота!\n\n' +
+      'Если вы это видите - бот работает корректно! 🎉'
+    );
+    
+    res.json({
+      success: true,
+      message: "Тестовое сообщение отправлено",
+      result: result
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
 });
 
-// Обработка graceful shutdown
+// Запуск сервера
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Bot server running on port ${PORT}`);
+  console.log(`✅ Health check available at /health`);
+  console.log(`📝 Set webhook: /set-webhook`);
+  console.log(`🕒 Server started at: ${new Date().toISOString()}`);
+});
+
+// Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, shutting down gracefully');
+  console.log('🛑 Received SIGTERM, shutting down gracefully...');
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('Received SIGINT, shutting down gracefully');
+  console.log('🛑 Received SIGINT, shutting down gracefully...');
   process.exit(0);
 });
